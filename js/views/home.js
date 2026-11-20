@@ -1,8 +1,8 @@
-import { asDate, coachNotes, fighterCard, fixed, headline, isNum, longDate, metricOf, nextScan, RANK_NAMES, rankOf, shortDate, signed, STATS, weekStreak } from '../model.js';
+import { asDate, coachNotes, fighterCard, fixed, headline, isNum, longDate, metricOf, nextScan, RANK_NAMES, rankOf, shortDate, signed, STATS, timelineOf, weekStreak } from '../model.js';
 import { lineChart } from '../charts.js';
 import { store } from '../store.js';
-import { countUp, esc, icon } from '../ui.js';
-import { bandScale, deltaHtml, duo, flaggedSet, header, pointsOf, radar, wireHeader } from './common.js';
+import { countUp, esc, icon, toast } from '../ui.js';
+import { bandScale, deltaHtml, duo, flaggedSet, header, logNoScanRound, pointsOf, radar, wireHeader } from './common.js';
 import { milestoneAhead, teamPeople } from './team.js';
 
 const NOTE_ICON = { caution: icon.alert, fire: icon.flame, plan: icon.target };
@@ -64,17 +64,21 @@ function notesCard(list) {
     </div>`).join('')}</section>`;
 }
 
-function nextCard(list) {
-  const nx = nextScan(list);
-  const streak = weekStreak(list);
+// Rounds logged without a scan move the round number, the due date and the
+// streak along with the scans.
+function nextCard(list, trainings) {
+  const all = timelineOf(list, trainings);
+  const nx = nextScan(all);
+  const streak = weekStreak(all);
   const when = nx.daysUntil > 1 ? `in ${nx.daysUntil} days, ${shortDate(nx.due)}`
     : nx.daysUntil === 1 ? 'tomorrow'
       : nx.daysUntil === 0 ? 'today'
         : `${Math.abs(nx.daysUntil)} ${Math.abs(nx.daysUntil) === 1 ? 'day' : 'days'} overdue`;
   return `<section class="card">
-    <div class="h" style="margin-bottom:6px"><h2>Round ${list.length + 1}</h2><span class="aside">${streak} ${streak === 1 ? 'week' : 'weeks'} in a row</span></div>
+    <div class="h" style="margin-bottom:6px"><h2>Round ${all.length + 1}</h2><span class="aside">${streak} ${streak === 1 ? 'week' : 'weeks'} in a row</span></div>
     <p class="sub">Due ${when}. Same time of day, before food and training.</p>
     <a class="btn gold block" href="#/scan" style="margin-top:12px">${icon.camera(22)} Scan a slip</a>
+    <button class="btn ghost block" data-no-scan style="margin-top:6px">Trained without a scan</button>
   </section>`;
 }
 
@@ -254,7 +258,7 @@ export const home = {
       <div class="col">
         ${poster(h)}
         ${notesCard(list)}
-        ${list.length > 1 ? nextCard(list) : ''}
+        ${list.length > 1 ? nextCard(list, ctx.trainings) : ''}
         ${togetherCard()}
       </div>
       <div class="col">
@@ -278,5 +282,11 @@ export const home = {
       await store.setPrefs({ tapeBase: b.dataset.tape });
       ctx.rerender({ keepScroll: true });
     }));
+    root.querySelector('[data-no-scan]')?.addEventListener('click', async () => {
+      const logged = await logNoScanRound(ctx.profile);
+      if (!logged) return;
+      toast(`Round ${logged.number} logged. It counts for your streak.`);
+      ctx.rerender({ keepScroll: true });
+    });
   },
 };

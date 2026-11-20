@@ -1,24 +1,41 @@
 import { store } from '../store.js';
-import { asDate, BIO_ROWS, clock, fixed, INPUT_ROWS, isNum, isUnusualTime, judgeRound, longDate, physiqueLabel, RANGE_ROWS, SLIP_ROWS, usualMinutes } from '../model.js';
+import { asDate, BIO_ROWS, clock, fixed, INPUT_ROWS, isNum, isUnusualTime, judgeRound, longDate, physiqueLabel, RANGE_ROWS, SLIP_ROWS, timelineOf, usualMinutes } from '../model.js';
 import { confirmSheet, esc, icon, toast } from '../ui.js';
-import { header, pageTitle, wireHeader } from './common.js';
+import { header, logNoScanRound, pageTitle, wireHeader } from './common.js';
 
 const TONE_CHIP = { won: 'won', lost: 'lost', even: '' };
+
+// Round numbers count the rounds logged without a scan as well.
+const roundNumber = (ctx, id) => timelineOf(ctx.list, ctx.trainings).findIndex((r) => r.id === id) + 1;
+
+function trainingRow(r, n) {
+  return `<button class="round training" data-training="${esc(r.id)}" data-number="${n}">
+    <div class="round-no"><small>RND</small>${n}</div>
+    <div>
+      <div class="round-date">${longDate(asDate(r))}</div>
+      <div class="round-flags"><span class="chip">No scan</span>${r.note ? `<span class="round-note">${esc(r.note)}</span>` : ''}</div>
+    </div>
+    <div class="round-values"><em>Trained</em></div>
+  </button>`;
+}
 
 export const rounds = {
   render(ctx) {
     const { list } = ctx;
-    if (!list.length) {
+    const all = timelineOf(list, ctx.trainings);
+    if (!all.length) {
       return `${header(ctx)}<main class="page"><section class="card"><div class="h"><h2>No rounds yet</h2></div>
       <p class="sub">Every scan you log appears here.</p><a class="btn gold block" href="#/scan" style="margin-top:12px">Scan a slip</a></section></main>`;
     }
     const usual = usualMinutes(list);
-    const cards = list.map((r, i) => {
+    const cards = all.map((r, at) => {
+      if (r.training) return trainingRow(r, at + 1);
+      const i = list.indexOf(r);
       const verdict = judgeRound(list, i);
       const d = asDate(r);
       const unusual = isUnusualTime(r, usual);
       return `<a class="round" href="#/round/${esc(r.id)}">
-        <div class="round-no"><small>RND</small>${i + 1}</div>
+        <div class="round-no"><small>RND</small>${at + 1}</div>
         <div>
           <div class="round-date">${longDate(d)}<span>${clock(d)}</span></div>
           <div class="round-flags">
@@ -33,11 +50,32 @@ export const rounds = {
       </a>`;
     }).reverse().join('');
     return `${header(ctx)}<main class="page">
-      <div class="h" style="margin:0"><h2>All rounds</h2><a href="#/new">Key one in</a></div>
+      <div class="h" style="margin:0"><h2>All rounds</h2>
+        <span class="h-links"><button class="h-link" data-no-scan>No scan</button><a href="#/new">Key one in</a></span></div>
       <div class="rounds">${cards}</div>
     </main>`;
   },
-  mount(root, ctx) { wireHeader(root, ctx.rerender); },
+  mount(root, ctx) {
+    wireHeader(root, ctx.rerender);
+    root.querySelector('[data-no-scan]')?.addEventListener('click', async () => {
+      const logged = await logNoScanRound(ctx.profile);
+      if (!logged) return;
+      toast(`Round ${logged.number} logged. It counts for your streak.`);
+      ctx.rerender({ keepScroll: true });
+    });
+    root.querySelectorAll('[data-training]').forEach((b) => b.addEventListener('click', async () => {
+      const yes = await confirmSheet({
+        title: `Delete round ${b.dataset.number}?`,
+        body: 'It was logged without a scan. Deleting it takes it out of your round count and your streak.',
+        confirm: 'Delete',
+        danger: true,
+      });
+      if (!yes) return;
+      await store.deleteTraining(b.dataset.training);
+      toast('Round deleted');
+      ctx.rerender({ keepScroll: true });
+    }));
+  },
 };
 
 const kv = (rows, r) => rows.filter((f) => isNum(r[f.key])).map((f) => `<dt>${esc(f.label)}</dt><dd>${fixed(r[f.key], f.dec)}${f.unit ? `<small>${esc(f.unit)}</small>` : ''}</dd>`).join('');
@@ -51,7 +89,7 @@ export const round = {
     const d = asDate(r);
     const verdict = judgeRound(list, index);
     const extra = kv(RANGE_ROWS, r), input = kv(INPUT_ROWS, r), bio = kv(BIO_ROWS, r);
-    return `${pageTitle(`Round ${index + 1}`, '#/rounds')}<main class="page">
+    return `${pageTitle(`Round ${roundNumber(ctx, r.id)}`, '#/rounds')}<main class="page">
       <section class="card">
         <div class="h" style="margin-bottom:6px"><h2>${longDate(d)}</h2><span class="aside">${clock(d)}</span></div>
         <div class="round-flags"><span class="chip ${TONE_CHIP[verdict.tone]}">${esc(verdict.title)}</span>${r.physique ? `<span class="chip">${esc(physiqueLabel(r.physique))}</span>` : ''}</div>
@@ -68,11 +106,10 @@ export const round = {
     </main>`;
   },
   async mount(root, ctx) {
-    const { arg, list } = ctx;
-    const index = list.findIndex((r) => r.id === arg);
+    const { arg } = ctx;
     root.querySelector('[data-delete]')?.addEventListener('click', async () => {
       const yes = await confirmSheet({
-        title: `Delete round ${index + 1}?`,
+        title: `Delete round ${roundNumber(ctx, arg)}?`,
         body: 'This removes the scan and its photo from this device. It cannot be undone.',
         confirm: 'Delete',
         danger: true,

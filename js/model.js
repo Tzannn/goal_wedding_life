@@ -85,6 +85,10 @@ export const physiqueLabel = (name) => (name ? titleCase(name) : '');
 export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 export const asDate = (r) => new Date(r.takenAt);
 export const byTime = (a, b) => a.takenAt.localeCompare(b.takenAt);
+
+// Rounds trained where there is no scanner count towards the round number and
+// the weekly streak, never towards the numbers. They carry `training: true`.
+export const timelineOf = (list, trainings = []) => [...list, ...trainings.map((t) => ({ ...t, training: true }))].sort(byTime);
 export const fixed = (v, dec = 1) => (isNum(v) ? v.toFixed(dec) : '–');
 export const signed = (v, dec = 1) => {
   if (!isNum(v)) return '–';
@@ -102,6 +106,8 @@ export const longDate = (d) => `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullY
 export const monthLong = (d) => `${MON[d.getMonth()]} ${d.getFullYear()}`;
 export const monthShort = (d) => `${MON[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}`;
 const pad2 = (n) => String(n).padStart(2, '0');
+// The local calendar day, in the same form that starts every `takenAt`.
+export const dayKeyOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 export const clock = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 export const clockFromMinutes = (m) => `${pad2(Math.floor(m / 60))}:${pad2(Math.round(m % 60))}`;
 
@@ -334,8 +340,8 @@ const TROPHY_DEFS = [
   { id: 'first-bell', name: 'First Bell', how: 'Log your first scan', test: (c) => c.n >= 1 },
   { id: 'five-rounds', name: 'Five Rounds', how: 'Log 5 scans', test: (c) => c.n >= 5 },
   { id: 'twelve-rounds', name: 'Twelve Rounds', how: 'Log 12 scans, a full title fight', test: (c) => c.n >= 12 },
-  { id: 'streak-4', name: 'Training Camp', how: 'Scan 4 weeks in a row', test: (c) => c.streak >= 4 },
-  { id: 'streak-12', name: 'Iron Habit', how: 'Scan 12 weeks in a row', test: (c) => c.streak >= 12 },
+  { id: 'streak-4', name: 'Training Camp', how: 'Train 4 weeks in a row', test: (c) => c.streak >= 4 },
+  { id: 'streak-12', name: 'Iron Habit', how: 'Train 12 weeks in a row', test: (c) => c.streak >= 12 },
   { id: 'class-up', name: 'Class Up', how: 'Improve your physique rating', test: (c) => c.physiqueUp },
   { id: 'recomp', name: 'Recomp Confirmed', how: 'Fat down and muscle up, held for 2 weeks', test: (c) => c.span >= 14 && c.dFat <= -0.2 && c.dMuscle >= 0.2 },
   { id: 'fat-1', name: 'First Kilo Down', how: 'Lose 1 kg of fat', test: (c) => c.dFat <= -1 },
@@ -350,8 +356,9 @@ const TROPHY_DEFS = [
   { id: 'time-age', name: 'Younger Than You', how: 'Reach a metabolic age at or under your real age', test: (c) => isNum(c.meta) && isNum(c.age) && c.meta <= c.age },
 ];
 
-// Each trophy is dated by the first scan that earned it.
-export function trophies(list) {
+// Each trophy is dated by the first scan that earned it. Rounds trained
+// without a scan count towards the streak trophies.
+export function trophies(list, trainings = []) {
   const earned = new Map();
   for (let i = 0; i < list.length; i++) {
     const upto = list.slice(0, i + 1);
@@ -362,7 +369,7 @@ export function trophies(list) {
     const curPhysique = physiqueScore(cur.physique);
     const ctx = {
       n: upto.length,
-      streak: bestRun(upto),
+      streak: bestRun([...upto, ...trainings.filter((t) => t.takenAt <= cur.takenAt)]),
       span: daysBetween(first, cur),
       dFat: isNum(avgFat) && isNum(startFat) && upto.length > 1 ? avgFat - startFat : 0,
       dMuscle: isNum(avgMuscle) && isNum(startMuscle) && upto.length > 1 ? avgMuscle - startMuscle : 0,
@@ -658,34 +665,4 @@ export function fighterCard(list, sex) {
   }]));
   const ovr = overall(now);
   return { now, start, ids, ovr, ovrStart: overall(start), band: bandOf(ovr), details };
-}
-
-// ---------- head to head ----------
-
-// Compares two people by change from their own Day One, so body size does not
-// decide the result.
-export function headToHead(a, b) {
-  const stat = (list, goals) => {
-    const h = headline(list);
-    const r = rankOf(list, goals);
-    const fatPct = isNum(list[0]?.fatPct) && isNum(list[list.length - 1]?.fatPct) ? list[list.length - 1].fatPct - list[0].fatPct : null;
-    return { h, r, fatPct, streak: weekStreak(list) };
-  };
-  const A = stat(a.list, a.goals), B = stat(b.list, b.goals);
-  const rows = [
-    { label: 'Road to champion', a: A.r.score * 100, b: B.r.score * 100, dec: 0, unit: '%', better: 1 },
-    { label: 'Body fat change', a: A.fatPct, b: B.fatPct, dec: 1, unit: 'pts', better: -1, sign: true },
-    { label: 'Fat mass change', a: A.h.fat, b: B.h.fat, dec: 1, unit: 'kg', better: -1, sign: true },
-    { label: 'Muscle change', a: A.h.muscle, b: B.h.muscle, dec: 1, unit: 'kg', better: 1, sign: true },
-    { label: 'Weeks in a row', a: A.streak, b: B.streak, dec: 0, unit: '', better: 1 },
-  ];
-  let aPts = 0, bPts = 0;
-  for (const row of rows) {
-    row.winner = null;
-    if (isNum(row.a) && isNum(row.b) && row.a !== row.b) {
-      row.winner = (row.a - row.b) * row.better > 0 ? 'a' : 'b';
-      if (row.winner === 'a') aPts++; else bPts++;
-    }
-  }
-  return { rows, aPts, bPts };
 }

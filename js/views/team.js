@@ -2,8 +2,8 @@
 // milestone, change since each Day One, and the two fighter cards.
 
 import {
-  fighterCard, fixed, headToHead, isNum, metricOf, monthLong, nextTier, planFor, signed,
-  STATS, TARGET_KEYS, TIERS, tierProgress, weekStreak,
+  fighterCard, fixed, isNum, metricOf, monthLong, nextTier, planFor,
+  STATS, TARGET_KEYS, TIERS, tierProgress, timelineOf, weekStreak,
 } from '../model.js';
 import { lineChart } from '../charts.js';
 import { store } from '../store.js';
@@ -28,6 +28,7 @@ export function teamPeople() {
     return {
       profile,
       list,
+      trainings: store.trainingsFor(profile.id),
       goals,
       color: colorOfPerson(profile.id),
       sex: profile.sex ?? list[list.length - 1]?.gender ?? 'male',
@@ -61,8 +62,9 @@ function teamHeader() {
 
 function poster(ps, ms) {
   const corner = (x, side) => {
-    const n = x.list.length;
-    const streak = weekStreak(x.list);
+    const all = timelineOf(x.list, x.trainings);
+    const n = all.length;
+    const streak = weekStreak(all);
     return `<div class="corner ${side}">
       <span class="corner-tag" style="--tag:${x.color}">${esc(x.profile.name)}</span>
       <strong>${n}<small>${n === 1 ? 'round' : 'rounds'}</small></strong>
@@ -192,31 +194,6 @@ function fightersCard(ps) {
   </section>`;
 }
 
-// Scored on change from each person's own Day One, so body size cannot decide it.
-function titleFight(ps) {
-  const [a, b] = ps;
-  if (a.list.length < 2 || b.list.length < 2) {
-    return `<section class="card"><div class="h"><h2>Title fight</h2></div>
-      <p class="sub">The scorecard opens once you both have two scans.</p></section>`;
-  }
-  const { rows, aPts, bPts } = headToHead({ list: a.list, goals: a.goals }, { list: b.list, goals: b.goals });
-  const cell = (row, side) => {
-    const v = row[side];
-    if (!isNum(v)) return '–';
-    const body = row.sign ? signed(v, row.dec) : fixed(v, row.dec);
-    return `<span class="${row.winner === side ? 'win' : ''}">${body}${row.unit ? ` ${esc(row.unit)}` : ''}</span>`;
-  };
-  return `<section class="card">
-    <div class="h"><h2>Title fight</h2></div>
-    <table class="versus">
-      <thead><tr><th>${esc(a.profile.name)}</th><th></th><th>${esc(b.profile.name)}</th></tr></thead>
-      <tbody>${rows.map((row) => `<tr><td>${cell(row, 'a')}</td><td>${esc(row.label)}</td><td>${cell(row, 'b')}</td></tr>`).join('')}</tbody>
-    </table>
-    <p class="score">${aPts} : ${bPts}</p>
-    <p class="fine" style="text-align:center">Scored on change from each person's own Day One.</p>
-  </section>`;
-}
-
 export const team = {
   render() {
     const ps = teamPeople();
@@ -236,7 +213,6 @@ export const team = {
       <div class="col">
         ${sideCard(ps)}
         ${fightersCard(ps)}
-        ${titleFight(ps)}
       </div>
     </main>`;
   },

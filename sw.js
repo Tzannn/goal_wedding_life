@@ -1,7 +1,7 @@
 // Stores the whole app on the device the first time it is opened, so everything
 // after that, including reading photos, works with no connection.
 // Bump VERSION whenever any file in the list changes.
-const VERSION = 'undisputed-v11';
+const VERSION = 'undisputed-v12';
 
 const FILES = [
   './',

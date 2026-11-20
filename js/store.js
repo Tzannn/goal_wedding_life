@@ -30,6 +30,9 @@ export const CSV_COLUMNS = [
 export const store = {
   profiles: [],
   readings: [],
+  // Rounds trained where there is no scanner: { id, profileId, takenAt (that
+  // day at 12:00), note }. They count as rounds and for the streak only.
+  trainings: [],
   deleted: {},
   activeId: null,
   prefs: { sound: true, backupAt: null, backupCount: 0 },
@@ -39,6 +42,7 @@ export const store = {
   async load() {
     this.profiles = (await db.all('profiles')).sort(byCreated);
     this.readings = await db.all('readings');
+    this.trainings = await db.getMeta('trainings', []);
     this.deleted = await db.getMeta('deleted', {});
     this.activeId = await db.getMeta('activeId');
     if (!this.profiles.some((p) => p.id === this.activeId)) this.activeId = this.profiles[0]?.id ?? null;
@@ -55,6 +59,34 @@ export const store = {
 
   listFor(id = this.activeId) {
     return this.readings.filter((r) => r.profileId === id).sort(byTime).map(withDerived);
+  },
+
+  trainingsFor(id = this.activeId) {
+    return this.trainings.filter((t) => t.profileId === id).sort(byTime);
+  },
+
+  // A scan or a logged round on that calendar day ('YYYY-MM-DD').
+  roundOn(profileId, day) {
+    return [...this.readings, ...this.trainings].find((r) => r.profileId === profileId && r.takenAt.slice(0, 10) === day) || null;
+  },
+
+  async saveTrainings() {
+    await db.setMeta('trainings', this.trainings);
+  },
+
+  async logTraining(profileId, day, note = '') {
+    const training = { id: newId(), profileId, takenAt: `${day}T12:00`, note, createdAt: stamp(), updatedAt: stamp() };
+    this.trainings = [...this.trainings, training];
+    await this.saveTrainings();
+    this.changed();
+    return training;
+  },
+
+  async deleteTraining(id) {
+    this.trainings = this.trainings.filter((t) => t.id !== id);
+    await this.saveTrainings();
+    await this.forget([id]);
+    this.changed();
   },
 
   goalsFor(profile = this.active, list = this.listFor(profile?.id)) {
@@ -91,8 +123,11 @@ export const store = {
       await db.del('readings', r.id);
       await db.del('photos', r.id);
     }
+    const trained = this.trainings.filter((t) => t.profileId === id);
+    this.trainings = this.trainings.filter((t) => t.profileId !== id);
+    await this.saveTrainings();
     await db.del('profiles', id);
-    await this.forget([id, ...gone.map((r) => r.id)]);
+    await this.forget([id, ...gone.map((r) => r.id), ...trained.map((t) => t.id)]);
     this.readings = this.readings.filter((r) => r.profileId !== id);
     this.profiles = this.profiles.filter((p) => p.id !== id);
     if (this.activeId === id) await this.setActive(this.profiles[0]?.id ?? null);
@@ -122,6 +157,14 @@ export const store = {
     }
     await db.put('readings', reading);
     this.readings = [...this.readings.filter((r) => r.id !== reading.id), reading];
+
+    // A scan on a day already logged without one takes that round's place.
+    const replaced = this.trainings.filter((t) => t.profileId === profileId && t.takenAt.slice(0, 10) === reading.takenAt?.slice(0, 10));
+    if (replaced.length) {
+      this.trainings = this.trainings.filter((t) => !replaced.includes(t));
+      await this.saveTrainings();
+      await this.forget(replaced.map((t) => t.id));
+    }
 
     // The newest slip keeps the profile's basic facts up to date.
     const profile = this.profiles.find((p) => p.id === profileId);
@@ -157,6 +200,7 @@ export const store = {
       exportedAt: stamp(),
       profiles: this.profiles,
       readings: this.readings.map(({ hasPhoto, ...rest }) => rest),
+      trainings: this.trainings,
     };
   },
 
@@ -195,6 +239,15 @@ export const store = {
       await db.put('readings', next);
       this.readings = [...this.readings.filter((x) => x.id !== r.id), next];
     }
+    let trainingsAdded = false;
+    for (const t of Array.isArray(data.trainings) ? data.trainings : []) {
+      if (typeof t?.id !== 'string' || !known.has(t.profileId) || !/^\d{4}-\d{2}-\d{2}T/.test(t.takenAt ?? '')) continue;
+      if (this.trainings.some((x) => x.id === t.id) || this.roundOn(t.profileId, t.takenAt.slice(0, 10))) continue;
+      this.trainings = [...this.trainings, t];
+      trainingsAdded = true;
+      added++;
+    }
+    if (trainingsAdded) await this.saveTrainings();
     if (!this.active && this.profiles[0]) await this.setActive(this.profiles[0].id);
     this.changed();
     return { added, profiles: data.profiles.length };
@@ -205,6 +258,7 @@ export const store = {
     return {
       profiles: this.profiles,
       readings: this.readings.map(({ hasPhoto, ...rest }) => rest),
+      trainings: this.trainings,
       deleted: this.deleted,
     };
   },
@@ -236,6 +290,8 @@ export const store = {
       await db.del('photos', r.id);
     }
     this.readings = next;
+    this.trainings = (doc.trainings || []).filter((t) => keepProfiles.has(t.profileId));
+    await this.saveTrainings();
     this.deleted = { ...doc.deleted };
     await db.setMeta('deleted', this.deleted);
     if (!this.profiles.some((p) => p.id === this.activeId)) await this.setActive(this.profiles[0]?.id ?? null);

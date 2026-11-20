@@ -22,13 +22,12 @@ function mapHtml(list) {
   </div>`;
 }
 
-// The head-to-head now lives on the Together page with everything else the two
-// of you share.
+// Everything the two of you share lives on the Together page.
 function versusHtml() {
   if (store.profiles.length < 2) return '';
   return `<a class="card teaser" href="#/team">
     ${duo()}
-    <span class="teaser-main"><b>Title fight</b><span class="fine">The scorecard for both of you is on the Together page</span></span>
+    <span class="teaser-main"><b>Together</b><span class="fine">Both of you side by side on the Together page</span></span>
     <span class="teaser-go" aria-hidden="true">${icon.back(22)}</span>
   </a>`;
 }
@@ -41,7 +40,7 @@ export const belts = {
         <p class="sub">Your belts and rank start after your first scan.</p><a class="btn gold block" href="#/scan" style="margin-top:12px">Scan a slip</a></section></main>`;
     }
     const r = rankOf(list, goals);
-    const earned = trophies(list);
+    const earned = trophies(list, ctx.trainings);
     const got = earned.filter((t) => t.earnedAt);
     const cards = r.belts.map((b) => `<div class="belt-card${b.won ? ' won' : ''}">
       <div class="belt-art">${beltArt(96)}</div>

@@ -1,5 +1,5 @@
 import { store } from '../store.js';
-import { asDate, BIO_ROWS, INPUT_ROWS, isNum, isUnusualTime, judgeRound, newRecords, physiqueLabel, PHYSIQUES, RANGE_ROWS, rankOf, shortDate, SLIP_ROWS, trophies, usualMinutes } from '../model.js';
+import { asDate, BIO_ROWS, INPUT_ROWS, isNum, isUnusualTime, judgeRound, newRecords, physiqueLabel, PHYSIQUES, RANGE_ROWS, rankOf, shortDate, SLIP_ROWS, timelineOf, trophies, usualMinutes } from '../model.js';
 import { readSlip, releaseEngine, STAGES } from '../ocr/reader.js';
 import { crossCheck, deriveMissing } from '../ocr/verify.js';
 import { confetti, confirmSheet, esc, icon, ringBell, sheet, toast } from '../ui.js';
@@ -360,7 +360,9 @@ export const review = {
     if (!draft) return `${pageTitle('Scan', '#/scan')}<main class="page"><p class="sub">Nothing to review. <a href="#/scan">Scan a slip</a>.</p></main>`;
     const isEdit = !!draft.editId;
     const target = store.profiles.find((p) => p.id === draft.profileId) || ctx.profile;
-    const rounds = store.listFor(target.id).length;
+    // A round logged without a scan on the slip's day gives way to the scan.
+    const slipDay = draft.takenAt?.slice(0, 10);
+    const rounds = timelineOf(store.listFor(target.id), store.trainingsFor(target.id).filter((t) => t.takenAt.slice(0, 10) !== slipDay)).length;
     const title = isEdit ? 'Edit round' : draft.source === 'scan' ? 'Check the slip' : 'Key it in';
     const counter = flow.total > 1 ? `<p class="fine">Slip ${flow.position} of ${flow.total}</p>` : '';
     const physOptions = ['<option value="">Not on this slip</option>', ...PHYSIQUES.map((p) => `<option value="${esc(p)}" ${draft.physique === p ? 'selected' : ''}>${esc(physiqueLabel(p))}</option>`)].join('');
@@ -495,7 +497,7 @@ async function save(form, draft, ctx) {
   const beforeList = store.listFor(profile.id);
   const beforeGoals = store.goalsFor(profile, beforeList);
   const beforeRank = beforeList.length ? rankOf(beforeList, beforeGoals) : null;
-  const beforeTrophies = new Set(trophies(beforeList).filter((t) => t.earnedAt).map((t) => t.id));
+  const beforeTrophies = new Set(trophies(beforeList, store.trainingsFor(profile.id)).filter((t) => t.earnedAt).map((t) => t.id));
 
   const saved = await store.saveReading(profile.id, payload, { photo: draft.photo, id });
   if (draft.profileId !== store.activeId) await store.setActive(draft.profileId);
@@ -517,7 +519,9 @@ function celebrate(saved, profile, beforeRank, beforeTrophies, ctx) {
   const records = newRecords(list, index);
   const goals = store.goalsFor(fresh, list);
   const rank = rankOf(list, goals);
-  const fresher = trophies(list).filter((t) => t.earnedAt && !beforeTrophies.has(t.id));
+  const trainings = store.trainingsFor(fresh.id);
+  const fresher = trophies(list, trainings).filter((t) => t.earnedAt && !beforeTrophies.has(t.id));
+  const number = timelineOf(list, trainings).findIndex((r) => r.id === saved.id) + 1;
   const promoted = beforeRank && rank.index > beforeRank.index;
   const unusual = isUnusualTime(list[index], usualMinutes(list));
   const hasMore = flow.queue.length > 0;
@@ -535,7 +539,7 @@ function celebrate(saved, profile, beforeRank, beforeTrophies, ctx) {
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
   el.innerHTML = `<div class="bout-inner">
-    <p class="bout-round">Round ${index + 1} · ${shortDate(asDate(list[index]))}</p>
+    <p class="bout-round">Round ${number} · ${shortDate(asDate(list[index]))}</p>
     <h2 class="bout-title ${verdict.tone === 'won' ? 'won' : ''}">${esc(verdict.title)}</h2>
     <p class="bout-line">${esc(verdict.line)}${unusual ? ' This scan was at an unusual time, so read it with care.' : ''}</p>
     ${rows ? `<div class="bout-rows">${rows}</div>` : ''}

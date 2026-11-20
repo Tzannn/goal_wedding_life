@@ -1,7 +1,7 @@
 // Pieces shared between screens.
 
 import { store } from '../store.js';
-import { asDate, BANDS, headline, isNum, isUnusualTime, metricOf, signed, STATS, usualMinutes } from '../model.js';
+import { asDate, BANDS, dayKeyOf, daysBetween, isNum, isUnusualTime, longDate, metricOf, signed, STATS, timelineOf, usualMinutes } from '../model.js';
 import { esc, icon, sheet } from '../ui.js';
 
 export const initial = (name) => esc((name || '?').trim().charAt(0).toUpperCase());
@@ -55,9 +55,12 @@ export function radar(layers, labelOf) {
   return svg;
 }
 
-export function header({ profile, list }) {
-  const h = headline(list);
-  const meta = list.length ? `Round ${list.length}${h.days > 0 ? ` · Day ${h.days + 1}` : ''}` : 'Day one';
+// Rounds logged without a scan count here too, so the round number and the
+// day keep moving on weeks trained away from a scanner.
+export function header({ profile, list, trainings = [] }) {
+  const all = timelineOf(list, trainings);
+  const days = all.length ? Math.round(daysBetween(all[0], all[all.length - 1])) : 0;
+  const meta = all.length ? `Round ${all.length}${days > 0 ? ` · Day ${days + 1}` : ''}` : 'Day one';
   return `<header class="top">
     <button class="who" data-open-profiles aria-label="Switch person">
       <span class="avatar">${initial(profile.name)}</span>
@@ -115,6 +118,44 @@ export function openProfiles(rerender) {
       el.querySelector('a.btn').addEventListener('click', () => close());
     },
   );
+}
+
+// A round trained where there is no scanner. It counts as a round and keeps
+// the streak going, and has no numbers, so the charts skip it. Resolves with
+// the saved round and its number, or nothing if cancelled.
+export async function logNoScanRound(profile) {
+  const today = dayKeyOf(new Date());
+  const saved = await sheet(
+    `<h3>Trained without a scan</h3>
+     <p class="sub" style="margin-bottom:12px">No Tanita at this gym? Log the round so it counts and your streak stays alive. It has no numbers, so the charts skip it.</p>
+     <form data-form style="display:grid;gap:12px">
+       <div class="form-row"><label for="nr-day">Day you trained</label>
+         <input class="input" type="date" id="nr-day" max="${today}" value="${today}" required></div>
+       <div class="form-row"><label for="nr-note">Where <small>optional</small></label>
+         <input class="input" id="nr-note" maxlength="30" autocomplete="off" placeholder="Hotel gym, home workout…"></div>
+       <p class="field-hint" data-error style="margin:0" hidden></p>
+       <div class="sheet-actions">
+         <button type="button" class="btn" data-no>Cancel</button>
+         <button class="btn gold">Log round</button>
+       </div>
+     </form>`,
+    (el, close) => {
+      el.querySelector('[data-no]').addEventListener('click', () => close(false));
+      el.querySelector('[data-form]').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const day = el.querySelector('#nr-day').value;
+        const error = el.querySelector('[data-error]');
+        const fail = (message) => { error.textContent = message; error.hidden = false; };
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return fail('Pick the day you trained.');
+        if (day > today) return fail('Pick today or a day before it.');
+        if (store.roundOn(profile.id, day)) return fail(`${profile.name} already has a round on ${longDate(new Date(`${day}T12:00`))}.`);
+        close(await store.logTraining(profile.id, day, el.querySelector('#nr-note').value.trim()));
+      });
+    },
+  );
+  if (!saved?.id) return null;
+  const number = timelineOf(store.listFor(profile.id), store.trainingsFor(profile.id)).findIndex((r) => r.id === saved.id) + 1;
+  return { ...saved, number };
 }
 
 export function wireHeader(root, rerender) {

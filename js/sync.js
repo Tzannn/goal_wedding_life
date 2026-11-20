@@ -23,7 +23,8 @@ const notify = (event) => listeners.forEach((fn) => { try { fn(event); } catch {
 
 // Newest edit wins for each person and each round, and a deletion wins over
 // any edit made before it. One slip saved separately on both phones (same
-// person, same minute) collapses into one round.
+// person, same minute) collapses into one round, and so does one day logged
+// without a scan on both.
 export function merge(a, b) {
   const deleted = { ...(a.deleted || {}) };
   for (const [id, at] of Object.entries(b.deleted || {})) if (!deleted[id] || at > deleted[id]) deleted[id] = at;
@@ -38,18 +39,23 @@ export function merge(a, b) {
   };
   const profiles = unite(a.profiles || [], b.profiles || []);
   const people = new Set(profiles.map((p) => p.id));
-  const slots = new Map();
-  for (const r of unite(a.readings || [], b.readings || [])) {
-    if (!people.has(r.profileId)) continue;
-    const key = `${r.profileId}|${r.takenAt}`;
-    const cur = slots.get(key);
-    if (!cur) { slots.set(key, r); continue; }
-    const keep = age(r) > age(cur) || (age(r) === age(cur) && r.id < cur.id) ? r : cur;
-    const drop = keep === r ? cur : r;
-    deleted[drop.id] = age(drop) || MIN;
-    slots.set(key, keep);
-  }
-  return { profiles, readings: [...slots.values()], deleted };
+  const collapse = (list, keyOf) => {
+    const slots = new Map();
+    for (const r of list) {
+      if (!people.has(r.profileId)) continue;
+      const key = keyOf(r);
+      const cur = slots.get(key);
+      if (!cur) { slots.set(key, r); continue; }
+      const keep = age(r) > age(cur) || (age(r) === age(cur) && r.id < cur.id) ? r : cur;
+      const drop = keep === r ? cur : r;
+      deleted[drop.id] = age(drop) || MIN;
+      slots.set(key, keep);
+    }
+    return [...slots.values()];
+  };
+  const readings = collapse(unite(a.readings || [], b.readings || []), (r) => `${r.profileId}|${r.takenAt}`);
+  const trainings = collapse(unite(a.trainings || [], b.trainings || []), (t) => `${t.profileId}|${t.takenAt.slice(0, 10)}`);
+  return { profiles, readings, trainings, deleted };
 }
 
 // The same data always gives the same text, whatever order it arrived in.
@@ -60,7 +66,7 @@ function canonical(doc) {
     return v;
   };
   const byId = (list) => [...(list || [])].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
-  return JSON.stringify(keys({ profiles: byId(doc.profiles), readings: byId(doc.readings), deleted: doc.deleted || {} }));
+  return JSON.stringify(keys({ profiles: byId(doc.profiles), readings: byId(doc.readings), trainings: byId(doc.trainings), deleted: doc.deleted || {} }));
 }
 
 // ---------- GitHub ----------

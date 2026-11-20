@@ -43,7 +43,7 @@ function drawTabs(current) {
 function context(arg) {
   const profile = store.active;
   const list = store.listFor();
-  return { profile, list, goals: store.goalsFor(profile, list), arg, go, rerender: render };
+  return { profile, list, trainings: store.trainingsFor(), goals: store.goalsFor(profile, list), arg, go, rerender: render };
 }
 
 let paintedRoute = null;

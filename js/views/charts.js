@@ -17,6 +17,7 @@ const RANGES = [
 
 let rangeId = 'all';
 let targetKey = 'fatPct';
+let targetZoom = 'scans';
 
 function inRange(list) {
   const range = RANGES.find((r) => r.id === rangeId);
@@ -56,6 +57,29 @@ function until(date) {
   return `in ${Math.round(days / 30.44)} months`;
 }
 
+// The Targets chart runs from Day One either to just past today, where the
+// scans are, or on to one of the milestones. Gold shows the whole plan.
+function zoomWindow(plan, list) {
+  const start = +plan.start;
+  const lastScan = list.length ? +asDate(list[list.length - 1]) : start;
+  const tier = plan.tiers.find((t) => t.id === targetZoom);
+  if (tier) return { start, end: Math.max(+tier.date, lastScan) };
+  const latest = Math.max(lastScan, Date.now());
+  return { start, end: latest + Math.max(3 * 864e5, (latest - start) * 0.1) };
+}
+
+// The plan line up to the window's end, cut where it leaves the window.
+function clipPlan(points, end) {
+  const out = [];
+  for (const [i, p] of points.entries()) {
+    if (+p.t <= end) { out.push(p); continue; }
+    const prev = points[i - 1];
+    if (prev && +prev.t < end) out.push({ t: new Date(end), y: prev.y + ((end - +prev.t) / (+p.t - +prev.t)) * (p.y - prev.y), cut: true });
+    break;
+  }
+  return out;
+}
+
 function targetsCard(plan, list) {
   const m = metricOf(targetKey);
   const unit = unitOf(m);
@@ -90,11 +114,15 @@ function targetsCard(plan, list) {
       ${TARGET_KEYS.map((k) => `<button class="pill${k === targetKey ? ' on' : ''}" data-target="${k}" aria-pressed="${k === targetKey}">${TARGET_LABELS[k]}</button>`).join('')}
     </div>
     <div class="stat-line" style="margin:12px 0 10px">${statusHtml}${status ? `<span>Now ${fixed(status.now, m.dec)}${esc(unit)}</span>` : ''}</div>
+    <div class="filters" role="group" aria-label="Zoom the chart" style="margin-bottom:8px">
+      <span class="filters-label">Zoom</span>
+      ${[{ id: 'scans', name: 'Scans' }, ...plan.tiers].map((z) => `<button class="pill${z.id === targetZoom ? ' on' : ''}" data-zoom="${z.id}" aria-pressed="${z.id === targetZoom}">${z.name}</button>`).join('')}
+    </div>
     <div id="target-chart"></div>
     <div class="legend" style="margin-top:8px">
       <span><i style="background:${actualColor(targetKey)}"></i>Your scans</span>
       <span><i class="dash"></i>Plan</span>
-      ${plan.tiers.map((t) => `<span><i class="box dot" style="background:${t.color}"></i>${t.name}</span>`).join('')}
+      ${plan.tiers.filter((t) => +t.date <= zoomWindow(plan, list).end).map((t) => `<span><i class="box dot" style="background:${t.color}"></i>${t.name}</span>`).join('')}
     </div>
     <div class="phases">${rows}</div>
     <p class="fine" style="margin-top:10px">Gold is your final goal and also sets your belts. Bronze and Silver sit on a straight line from Day One unless you set your own. Now is the average of your last 3 scans.</p>
@@ -112,20 +140,22 @@ function mountTargets(root, plan, list) {
     ...(isNum(startValue) ? [{ t: plan.start, y: startValue, when: `Day One · ${longDate(plan.start)}`, text: `${fixed(startValue, m.dec)}${unit}` }] : []),
     ...milestones.map((t) => ({ t: t.date, y: t.targets[targetKey], when: `${t.name} · ${monthLong(t.date)}`, text: `${fixed(t.targets[targetKey], m.dec)}${unit}` })),
   ];
-  const end = plan.tiers.reduce((latest, t) => (t.date > latest ? t.date : latest), plan.start);
+  const { start, end } = zoomWindow(plan, list);
+  const shown = clipPlan(planPoints, end).map((p) => (p.cut ? { ...p, when: `Plan · ${longDate(p.t)}`, text: `${fixed(p.y, m.dec)}${unit}` } : p));
   lineChart(el, {
     height: 230,
     unit: m.unit,
     dec: m.dec,
-    monthTicks: true,
-    xDomain: [plan.start, end],
+    // Under about ten weeks the axis names scan days instead of months.
+    monthTicks: end - start > 75 * 864e5,
+    xDomain: [new Date(start), new Date(end)],
     today: new Date(),
     series: [
-      { id: 'plan', name: 'Plan', color: 'var(--mute)', dash: true, dots: false, raw: true, endLabel: false, points: planPoints },
+      { id: 'plan', name: 'Plan', color: 'var(--mute)', dash: true, dots: false, raw: true, endLabel: false, points: shown },
       { id: targetKey, name: 'Your scans', color: actualColor(targetKey), points: pointsOf(list, targetKey, flaggedSet(list)) },
     ],
-    markers: milestones.map((t) => ({ t: t.date, y: t.targets[targetKey], color: t.color })),
-    summary: `${m.label}: your scans against the plan up to ${monthLong(end)}.`,
+    markers: milestones.filter((t) => +t.date <= end).map((t) => ({ t: t.date, y: t.targets[targetKey], color: t.color })),
+    summary: `${m.label}: your scans against the plan from ${longDate(new Date(start))} to ${longDate(new Date(end))}.`,
   });
 }
 
@@ -352,6 +382,7 @@ export const charts = {
     const again = () => ctx.rerender({ keepScroll: true });
     root.querySelectorAll('[data-range]').forEach((b) => b.addEventListener('click', () => { rangeId = b.dataset.range; again(); }));
     root.querySelectorAll('[data-target]').forEach((b) => b.addEventListener('click', () => { targetKey = b.dataset.target; again(); }));
+    root.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => { targetZoom = b.dataset.zoom; again(); }));
     root.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', async () => { if (await togglePick(b.dataset.pick)) again(); }));
     const { list, profile, goals } = ctx;
     if (!list.length) return;

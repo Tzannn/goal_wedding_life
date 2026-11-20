@@ -133,8 +133,9 @@ img { max-width: 100%; display: block; }
   margin-bottom: 12px;
 }
 .h h2 { font: italic 800 25px/1.05 var(--tight); text-transform: uppercase; letter-spacing: 0.01em; }
-.h a, .h .aside { font: 600 15px/1 var(--tight); letter-spacing: 0.04em; color: var(--canvas-2); text-decoration: none; white-space: nowrap; }
-.h a { text-transform: uppercase; }
+.h a, .h .aside, .h .h-link { font: 600 15px/1 var(--tight); letter-spacing: 0.04em; color: var(--canvas-2); text-decoration: none; white-space: nowrap; }
+.h a, .h .h-link { text-transform: uppercase; }
+.h-links { display: flex; align-items: center; gap: 18px; }
 
 .card { background: var(--mat); border-radius: var(--radius); padding: 16px; }
 .sub { color: var(--canvas-2); font-size: 15px; }
@@ -479,7 +480,10 @@ details.numbers summary { cursor: pointer; font: 600 15px/1.6 var(--tight); lett
   padding: 12px 14px;
   text-decoration: none;
 }
+button.round { width: 100%; text-align: left; }
 .round-no { font: italic 800 38px/1 var(--tight); text-align: center; color: var(--canvas); }
+.round.training .round-no { color: var(--canvas-2); }
+.round-note { align-self: center; font: 500 14px/1.15 var(--sans); color: var(--mute); }
 .round-no small { display: block; font: 700 11px/1 var(--tight); letter-spacing: 0.1em; color: var(--mute); }
 .round-date { font: 600 18px/1.1 var(--tight); }
 .round-date span { color: var(--mute); font-weight: 500; margin-left: 6px; }
@@ -554,12 +558,6 @@ details.numbers summary { cursor: pointer; font: 600 15px/1.6 var(--tight); lett
 .trophy.got .trophy-name { color: var(--canvas); }
 .trophy-how { font-size: 12.5px; line-height: 1.2; color: var(--mute); }
 
-.versus { width: 100%; border-collapse: collapse; }
-.versus th { font: italic 800 22px/1 var(--tight); text-transform: uppercase; padding-bottom: 10px; }
-.versus td { padding: 9px 2px; border-top: 1px solid var(--rope); text-align: center; font: 600 19px/1 var(--tight); font-variant-numeric: tabular-nums; }
-.versus td:nth-child(2) { font: 500 14px/1.15 var(--sans); color: var(--mute); width: 40%; }
-.versus .win { color: var(--gold); font-weight: 700; }
-.score { text-align: center; font: italic 800 34px/1 var(--tight); margin-top: 10px; }
 
 /* ---------- scan ---------- */
 .scan-actions { display: flex; flex-direction: column; gap: 10px; }
