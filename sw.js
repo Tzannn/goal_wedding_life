@@ -1,7 +1,7 @@
 // Stores the whole app on the device the first time it is opened, so everything
 // after that, including reading photos, works with no connection.
 // Bump VERSION whenever any file in the list changes.
-const VERSION = 'undisputed-v10';
+const VERSION = 'undisputed-v11';
 
 const FILES = [
   './',
@@ -47,8 +47,11 @@ const FILES = [
   'vendor/tesseract/eng.traineddata.gz',
 ];
 
+// GitHub Pages lets the browser keep files for 10 minutes, so every file is
+// fetched fresh; otherwise an update could store the previous version's files.
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(FILES)));
+  const fresh = FILES.map((file) => new Request(file, { cache: 'reload' }));
+  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(fresh)));
 });
 
 self.addEventListener('activate', (event) => {

@@ -118,13 +118,15 @@ async function syncOnce(cfg) {
   const res = await call(cfg, path);
   let remote = { profiles: [], readings: [], deleted: {} };
   let sha = null;
+  // 404 means there is no sync file yet, and a brand-new repository with no
+  // commits can answer 409. Either way the save below creates the file.
   if (res.status === 200) {
     const body = await res.json();
     sha = body.sha;
     const parsed = JSON.parse(fromBase64(body.content || ''));
     if (parsed?.app !== 'undisputed') throw new Error(`${FILE} in that repository is not an Undisputed sync file.`);
     remote = parsed;
-  } else if (res.status !== 404) {
+  } else if (res.status !== 404 && res.status !== 409) {
     throw await problem(res, 'read the sync file');
   }
 

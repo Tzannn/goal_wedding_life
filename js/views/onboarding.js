@@ -1,6 +1,28 @@
 import { store } from '../store.js';
-import { sheet, toast } from '../ui.js';
+import { esc, sheet, toast } from '../ui.js';
+import { initial } from './common.js';
 import { restoreFromFile, syncForm, wireSyncForm } from './settings.js';
+
+// After joining, open on the right person's rounds instead of whoever was
+// added first.
+function pickOwner() {
+  const people = store.profiles.map((p) => {
+    const count = store.listFor(p.id).length;
+    return `<button class="pick" data-id="${esc(p.id)}">
+      <span class="avatar">${initial(p.name)}</span>
+      <span class="pick-name">${esc(p.name)}<small>${count} ${count === 1 ? 'round' : 'rounds'}</small></span>
+    </button>`;
+  }).join('');
+  return sheet(
+    `<h3>Whose phone is this?</h3>
+     <p class="sub" style="margin-bottom:12px">Their rounds open first. Tap the name at the top to switch any time.</p>
+     <div>${people}</div>`,
+    (el, close) => el.querySelectorAll('.pick').forEach((b) => b.addEventListener('click', async () => {
+      await store.setActive(b.dataset.id);
+      close();
+    })),
+  );
+}
 
 export const onboarding = {
   render() {
@@ -15,7 +37,7 @@ export const onboarding = {
         <button class="btn gold block">Step into the ring</button>
       </form>
       <label class="btn ghost file-btn">I have a backup file<input type="file" data-restore></label>
-      <button class="btn ghost" data-sync-start>My partner already syncs</button>
+      <button class="btn ghost" data-sync-start>We already sync</button>
       <p class="fine">No account needed, and no internet after the first visit. Your numbers stay on this device unless you both turn on sync.</p>
     </main>`;
   },
@@ -27,11 +49,11 @@ export const onboarding = {
       await store.addProfile(name);
       ctx.go('#/home');
     });
-    // A second phone joins by connecting to the same private repository.
+    // Another phone joins by connecting to the same private repository.
     root.querySelector('[data-sync-start]').addEventListener('click', async () => {
       const joined = await sheet(
-        `<h3>Join your partner</h3>
-         <p class="sub" style="margin-bottom:12px">Use the same private repository and access token your partner connected with. Everything they have saved comes across.</p>
+        `<h3>Join your sync</h3>
+         <p class="sub" style="margin-bottom:12px">Use the same private repository and access token as your other phone or computer. Everything saved there comes across.</p>
          ${syncForm()}
          <div class="sheet-actions"><button type="button" class="btn" data-no>Cancel</button></div>`,
         (el, close) => {
@@ -41,10 +63,11 @@ export const onboarding = {
       );
       if (!joined) return;
       if (store.profiles.length) {
-        toast('Connected. You are in step with your partner.');
+        if (store.profiles.length > 1) await pickOwner();
+        toast('Connected. This phone is in step.');
         ctx.go('#/home');
       } else {
-        toast('Connected, but the repository has no rounds yet. Set up on the first phone, then sync.');
+        toast('Connected, but nothing is saved there yet. Load your rounds on the other phone or computer first.');
       }
     });
     root.querySelector('[data-restore]').addEventListener('change', async (e) => {
